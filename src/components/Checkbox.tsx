@@ -8,7 +8,7 @@ interface ICheckbox {
   id: string;
   checked: boolean;
   onChange: () => void;
-  label: string;
+  label?: string;
   tooltipText?: string;
   tooltipLink?: string;
 }
@@ -29,10 +29,12 @@ export function Checkbox({
           checked={checked}
           onClick={() => onChange()}
           id={id}
-        />
-        <label htmlFor={id} className="pl-[15px] text-[15px] leading-8">
-          {label}
-        </label>
+          />
+        {label && (
+          <label htmlFor={id} className="pl-[15px] text-[15px] leading-8">
+            {label}
+          </label>
+        )}
       </div>
       {tooltipText && (
         <Tooltip content={tooltipText}>
