@@ -45,15 +45,15 @@ export function SubmitNode() {
       .flat();
 
     sendTransactions(rawArgs)
-      .then(() => {
+      .then(({ safeTxHash }) => {
         setIsSubmitting(false);
-        push("/history");
+        push(`/txpending/${safeTxHash}`);
       })
       .catch(() => {
         setIsSubmitting(false);
         toast({
           title: "Error creating transaction",
-          content: "Review your orders and try again.",
+          description: "Review your orders and try again.",
           variant: "destructive",
         });
       });
