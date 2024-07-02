@@ -1,13 +1,7 @@
 "use client";
 
-import { ArrElement, GetDeepProp } from "@bleu-fi/ui";
+import { ArrElement, GetDeepProp } from "@bleu/ui";
 import { useSafeAppsSDK } from "@safe-global/safe-apps-react-sdk";
-import {
-  getTransactionDetails,
-  getTransactionQueue,
-  Transaction,
-  TransactionDetails,
-} from "@safe-global/safe-gateway-typescript-sdk";
 import {
   createContext,
   PropsWithChildren,
@@ -15,17 +9,17 @@ import {
   useEffect,
   useState,
 } from "react";
+import useSWR from "swr";
 import { Address } from "viem";
 
+import { useTxManager } from "#/hooks/useTxManager";
 import { composableCowAbi } from "#/lib/abis/composableCow";
 import { COMPOSABLE_COW_ADDRESS } from "#/lib/contracts";
 import { getCowOrders } from "#/lib/cowApi/fetchCowOrder";
-import { fetchTokenInfo } from "#/lib/fetchTokenInfo";
 import { composableCowApi } from "#/lib/gql/client";
 import { UserStopLossOrdersQuery } from "#/lib/gql/composable-cow/__generated__/1";
 import { ChainId, publicClientsFromIds } from "#/lib/publicClients";
-import { decodeComposableCowCreateTxData } from "#/lib/staticInputDecoder";
-import { IToken } from "#/lib/types";
+import { DraftOrder, IToken } from "#/lib/types";
 
 type StopLossOrderTypeRaw = ArrElement<
   GetDeepProp<UserStopLossOrdersQuery, "items">
@@ -91,16 +85,24 @@ export interface CowOrder {
 }
 
 type OrderContextType = {
+  draftOrders: DraftOrder[];
+  setDraftOrders: (orders: DraftOrder[]) => void;
+  addDraftOrders: (orders: DraftOrder[]) => void;
+  removeDraftOrders: (id: string[]) => void;
   orders: StopLossOrderType[];
-  loaded: boolean;
+  openOrders: StopLossOrderType[];
+  historyOrders: StopLossOrderType[];
+  isLoading: boolean;
   error: boolean;
-  reload: ({ showSpinner }: { showSpinner: boolean }) => void;
+  mutate: () => void;
   getRelatedCowOrders: ({
     appData,
   }: {
     appData: string;
   }) => Promise<CowOrder[] | undefined>;
-  pendingOrders: StopLossPendingOrderType[];
+  txManager: ReturnType<typeof useTxManager>;
+  txPendingDialog: boolean;
+  setTxPendingDialog: (open: boolean) => void;
 };
 
 export const OrderContext = createContext({} as OrderContextType);
@@ -108,44 +110,35 @@ export const OrderContext = createContext({} as OrderContextType);
 export function OrderProvider({ children }: PropsWithChildren) {
   const { safe } = useSafeAppsSDK();
   const {
-    safe: { chainId, safeAddress },
-  } = useSafeAppsSDK();
-  const [loaded, setLoaded] = useState(false);
-  const [retryCount, setRetryCount] = useState(0);
-  const [error, setError] = useState(false);
-  const [orders, setOrders] = useState<StopLossOrderType[]>([]);
-  const [pendingOrders, setPendingOrders] = useState<
-    StopLossPendingOrderType[]
-  >([]);
-
-  const reload = ({ showSpinner }: { showSpinner: boolean }) => {
-    setRetryCount(retryCount + 1);
-    setLoaded(!showSpinner);
-  };
-
-  async function loadOrders() {
-    try {
-      const [processedOrders, notProcessedOrders] = await Promise.all([
-        getProcessedStopLossOrders({
-          chainId: safe.chainId as ChainId,
-          address: safe.safeAddress as Address,
-        }),
-        getSigningStopLossOrders(),
-      ]);
-      setOrders(processedOrders);
-      setPendingOrders(notProcessedOrders);
-      setError(false);
-    } catch (err) {
-      // eslint-disable-next-line no-console
-      console.error(err);
-      setError(true);
+    data: orders,
+    mutate,
+    isLoading,
+    isValidating,
+    error,
+  } = useSWR(
+    {
+      chainId: safe.chainId as ChainId,
+      address: safe.safeAddress as Address,
+    },
+    getProcessedStopLossOrders,
+    {
+      fallbackData: [],
     }
-    setLoaded(true);
+  );
+
+  const [txPendingDialog, setTxPendingDialog] = useState(false);
+
+  const [draftOrders, setDraftOrders] = useState<DraftOrder[]>([]);
+
+  function addDraftOrders(orders: DraftOrder[]): void {
+    setDraftOrders([...draftOrders, ...orders]);
   }
 
-  useEffect(() => {
-    loadOrders();
-  }, [safe, retryCount]);
+  function removeDraftOrders(ids: string[]): void {
+    setDraftOrders(draftOrders.filter((order) => !ids.includes(order.id)));
+  }
+
+  const txManager = useTxManager();
 
   async function getProcessedStopLossOrders({
     chainId,
@@ -229,81 +222,6 @@ export function OrderProvider({ children }: PropsWithChildren) {
     return ordersWithStatus;
   }
 
-  function getComposableCowTransactionsFromTransactionsDetails(
-    transactionDetails: TransactionDetails
-  ) {
-    return (
-      transactionDetails.txData?.dataDecoded?.parameters?.[0].valueDecoded?.filter(
-        (value) =>
-          value.to?.toLowerCase() == COMPOSABLE_COW_ADDRESS.toLowerCase()
-      ) || []
-    );
-  }
-
-  async function getSigningStopLossOrders(): Promise<
-    StopLossPendingOrderType[]
-  > {
-    const chainIdString = String(chainId);
-    const queuedTransaction = (
-      await getTransactionQueue(chainIdString, safeAddress)
-    ).results.filter((result) => {
-      if (result.type != "TRANSACTION") return false;
-      if (!(`methodName` in result.transaction.txInfo)) return false;
-      return result.transaction.txInfo.methodName === "multiSend";
-    }) as Transaction[];
-
-    const queuedTransactionQueueDetails = await Promise.all(
-      queuedTransaction.map((transaction) =>
-        getTransactionDetails(chainIdString, transaction.transaction.id)
-      )
-    );
-
-    const queuedStopLossTransactionQueueDetails =
-      queuedTransactionQueueDetails.filter((transactionDetails) =>
-        transactionDetails.txData?.dataDecoded?.parameters?.[0].valueDecoded?.some(
-          (value) =>
-            value.to?.toLowerCase() == COMPOSABLE_COW_ADDRESS.toLowerCase()
-        )
-      );
-
-    const queuedStopLossTranasactionsDetails = await Promise.all(
-      queuedStopLossTransactionQueueDetails.map((transactionDetails) =>
-        Promise.all(
-          getComposableCowTransactionsFromTransactionsDetails(
-            transactionDetails
-          )
-        )
-      )
-    );
-
-    const queuedStaticInputs = queuedStopLossTranasactionsDetails
-      .flat()
-      .map(({ data }) =>
-        decodeComposableCowCreateTxData(data as `0x${string}`)
-      );
-
-    const [tokensIn, tokensOut] = await Promise.all(
-      [0, 1].map((index) =>
-        Promise.all(
-          queuedStaticInputs.map((staticInput) =>
-            fetchTokenInfo(
-              staticInput[index] as Address,
-              Number(chainId) as ChainId
-            )
-          )
-        )
-      )
-    );
-
-    return tokensIn.map((tokenIn, tokenInIndex) => {
-      return {
-        status: "Not executed",
-        tokenIn: tokenIn,
-        tokenOut: tokensOut[tokenInIndex],
-      };
-    });
-  }
-
   async function getRelatedCowOrders({
     appData,
   }: {
@@ -340,15 +258,32 @@ export function OrderProvider({ children }: PropsWithChildren) {
     return "created";
   }
 
+  useEffect(() => {
+    if (!txManager.isPonderUpdating) {
+      mutate();
+    }
+  }, [txManager.isPonderUpdating]);
+
+  const historyOrders = orders.filter((order) => !order.singleOrder);
+  const openOrders = orders.filter((order) => order.singleOrder);
+
   return (
     <OrderContext.Provider
       value={{
-        orders,
-        loaded,
+        historyOrders,
+        openOrders,
+        draftOrders,
+        setDraftOrders,
+        addDraftOrders,
+        removeDraftOrders,
+        isLoading: isLoading || isValidating,
         error,
-        reload,
+        mutate,
         getRelatedCowOrders,
-        pendingOrders,
+        orders,
+        txManager,
+        txPendingDialog,
+        setTxPendingDialog,
       }}
     >
       {children}

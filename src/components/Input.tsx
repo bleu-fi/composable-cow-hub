@@ -1,11 +1,7 @@
-"use client";
-
-import { cn,FormControl, FormLabel, FormMessage } from "@bleu-fi/ui";
+import { cn, Input as InputPrimitive, Label, Tooltip } from "@bleu/ui";
+import { InfoCircledIcon } from "@radix-ui/react-icons";
 import React, { HTMLProps } from "react";
 import { FieldError, RegisterOptions, useFormContext } from "react-hook-form";
-
-import { InfoTooltip } from "./Tooltip";
-
 
 interface IInput extends Omit<HTMLProps<HTMLInputElement>, "name"> {
   name: string;
@@ -14,22 +10,16 @@ interface IInput extends Omit<HTMLProps<HTMLInputElement>, "name"> {
   tooltipLink?: string;
 }
 
-export const BaseInput = React.forwardRef<
-  HTMLInputElement,
-  HTMLProps<HTMLInputElement>
->((props, ref) => (
-  <input
-    {...props}
-    ref={ref}
-    className={cn(
-      "w-full selection:color-white border border-border box-border inline-flex h-[35px] appearance-none items-center justify-center bg-input px-[10px] text-[15px] leading-none text-background outline-none selection:bg-primary-content disabled:bg-background/50 ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-50 rounded-md",
-      props.className
-    )}
-  />
-));
-
 export const Input = React.forwardRef<HTMLInputElement, IInput>(
-  ({ name, label, validation, tooltipText, tooltipLink, ...props }: IInput) => {
+  ({
+    name,
+    label,
+    validation,
+    tooltipText,
+    tooltipLink,
+    className,
+    ...props
+  }: IInput) => {
     const {
       register,
       formState: { errors },
@@ -44,21 +34,37 @@ export const Input = React.forwardRef<HTMLInputElement, IInput>(
 
     return (
       <div className="flex flex-col">
-        <div className="flex flex-row justify-between">
-          <FormLabel className="mb-2 block text-sm">{label}</FormLabel>
-          <InfoTooltip text={tooltipText} link={tooltipLink}/>
-        </div>
-        <FormControl>
-          <BaseInput
-            {...props}
-            {...register(name, validation)}
-            className={cn({ "border border-destructive": errors[name] })}
-          />
-        </FormControl>
+        {label && (
+          <div className="flex flex-row gap-x-2 items-center mb-2">
+            <Label className="block text-sm text-background">{label}</Label>
+            {tooltipText && (
+              <Tooltip content={tooltipText}>
+                {tooltipLink ? (
+                  <a
+                    href={tooltipLink}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <InfoCircledIcon className="text-background" />
+                  </a>
+                ) : (
+                  <InfoCircledIcon className="text-background" />
+                )}
+              </Tooltip>
+            )}
+          </div>
+        )}
+        <InputPrimitive
+          {...props}
+          {...register(name, validation)}
+          className={cn(
+            "w-full shadow-none rounded-md focus-visible:ring-transparent focus-visible:ring-offset-0 placeholder:text-background/70 bg-foreground border border-background",
+            className
+          )}
+        />
+
         {errorMessage && (
-          <FormMessage className="mt-1 h-6 text-sm text-destructive">
-            <span>{errorMessage}</span>
-          </FormMessage>
+          <div className="mt-1 text-sm text-destructive">{errorMessage}</div>
         )}
       </div>
     );

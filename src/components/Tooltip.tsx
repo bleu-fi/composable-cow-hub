@@ -3,7 +3,7 @@ import {
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-} from "@bleu-fi/ui";
+} from "@bleu/ui";
 import {
   ExclamationTriangleIcon,
   InfoCircledIcon,
@@ -35,6 +35,7 @@ export const InfoTooltip = ({
     }
   }
 
+  return <></>;
   return (
     <TooltipProvider>
       <Tooltip>
